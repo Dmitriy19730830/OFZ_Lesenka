@@ -1,0 +1,71 @@
+name: Build React Native App
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Target platform'
+        required: true
+        default: 'android'
+        type: choice
+        options:
+          - android
+          - ios
+
+env:
+  NODE_VERSION: 18
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Используем официальный образ с Android SDK и React Native CLI
+    container:
+      image: reactnativecommunity/react-native-android:latest
+      options: --user root  # нужны права для установки npm-пакетов
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'          # кэшируем node_modules по package-lock
+
+      - name: Install dependencies
+        run: npm ci            # строгая установка по lock-файлу
+
+      # --- Android build ---
+      - name: Build Android (APK)
+        if: github.event.inputs.platform == 'android'
+        working-directory: android
+        run: |
+          # Даём права на выполнение gradlew
+          chmod +x gradlew
+          # Сборка релизного APK (можно заменить на bundleRelease для .aab)
+          ./gradlew assembleRelease
+        env:
+          # Если нужна подпись — передаём параметры через переменные окружения
+          # (предварительно расшифруйте keystore и положите в android/app)
+          ORG_GRADLE_PROJECT_myReleaseKeyAlias: ${{ secrets.KEY_ALIAS }}
+          ORG_GRADLE_PROJECT_myReleaseKeyPassword: ${{ secrets.KEY_PASSWORD }}
+          ORG_GRADLE_PROJECT_myReleaseStoreFile: ${{ secrets.KEYSTORE_PATH }}
+          ORG_GRADLE_PROJECT_myReleaseStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
+
+      - name: Upload Android artifact
+        if: github.event.inputs.platform == 'android'
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: android/app/build/outputs/apk/release/*.apk
+          # если собирали .aab, замените путь на:
+          # android/app/build/outputs/bundle/release/*.aab
+
+      # --- iOS build (только информируем) ---
+      - name: iOS build information
+        if: github.event.inputs.platform == 'ios'
+        run: |
+          echo "iOS-сборка требует macOS-раннер."
+          echo "Добавьте отдельный job на macos-latest с установкой CocoaPods и Xcode."
+          exit 1
